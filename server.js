@@ -1,135 +1,74 @@
-require("dotenv").config();
-const express = require("express");
-const cors    = require("cors");
-const { getFarcasterFeed } = require("./farcaster");
-const { scoreFeed }        = require("./scorer");
+const axios = require("axios");
 
-const app  = express();
-const PORT = process.env.PORT || 3000;
-app.use(cors());
-app.use(express.json());
+const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
 
-let cache = { data: null, lastFetch: 0, source: "mock" };
+// simple in-memory cache (żeby nie zabić API limitów)
+let cache = {
+  data: null,
+  lastFetch: 0
+};
 
-async function getFeed(force = false) {
-  const stale = Date.now() - cache.lastFetch > 60000;
-  if (!force && !stale && cache.data) return cache;
+async function getFarcasterFeed() {
+  const now = Date.now();
 
-  const { posts, source } = await getFarcasterFeed();
-  const scored = await scoreFeed(posts);
-  scored.sort((a, b) => {
-    if (a.viral !== b.viral) return b.viral - a.viral;
-    return b.score - a.score;
-  });
+  // cache 60s
+  if (cache.data && now - cache.lastFetch < 60_000) {
+    return {
+      posts: cache.data,
+      source: "neynar-cache"
+    };
+  }
 
-  cache = { data: scored, lastFetch: Date.now(), source };
-  console.log(`[feed] ${scored.filter(p=>p.viral).length} viral / ${scored.length} total · source: ${source}`);
-  return cache;
+  try {
+    const res = await axios.get(
+      "https://api.neynar.com/v2/farcaster/feed",
+      {
+        headers: {
+          api_key: NEYNAR_API_KEY
+        },
+        params: {
+          limit: 50
+        }
+      }
+    );
+
+    // normalizacja danych (safe mapping)
+    const posts = (res.data.casts || []).map(p => ({
+      hash: p.hash,
+      text: p.text || "",
+      author: {
+        username: p.author?.username || "unknown",
+        follower_count: p.author?.follower_count || 0
+      },
+      reactions: {
+        likes_count: p.reactions?.likes_count || 0,
+        recasts_count: p.reactions?.recasts_count || 0
+      },
+      replies: {
+        count: p.replies?.count || 0
+      },
+      timestamp: p.timestamp || Date.now()
+    }));
+
+    cache = {
+      data: posts,
+      lastFetch: now
+    };
+
+    return {
+      posts,
+      source: "neynar"
+    };
+
+  } catch (err) {
+    console.error("[FARCASTER ERROR]", err.message);
+
+    // fallback → żeby appka nie padła
+    return {
+      posts: [],
+      source: "error-fallback"
+    };
+  }
 }
 
-// GET /feed
-app.get("/feed", async (req, res) => {
-  try {
-    const { data, lastFetch, source } = await getFeed();
-    res.json({
-      ok: true, count: data.length,
-      viralCount:  data.filter(p => p.viral).length,
-      lastUpdated: new Date(lastFetch).toISOString(),
-      source,
-      engine: process.env.OPENROUTER_API_KEY ? "openrouter"
-            : process.env.ANTHROPIC_API_KEY  ? "claude"
-            : "local",
-      posts: data,
-    });
-  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
-// POST /refresh
-app.post("/refresh", async (req, res) => {
-  try {
-    const { data, lastFetch, source } = await getFeed(true);
-    res.json({
-      ok: true, message: "Refreshed",
-      count: data.length,
-      viralCount:  data.filter(p => p.viral).length,
-      lastUpdated: new Date(lastFetch).toISOString(),
-      source,
-      engine: process.env.OPENROUTER_API_KEY ? "openrouter" : "local",
-      posts: data,
-    });
-  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
-// POST /mint — Zora mint prep
-app.post("/mint", async (req, res) => {
-  try {
-    const { postId, wallet } = req.body;
-    if (!postId) return res.status(400).json({ ok: false, error: "postId required" });
-
-    // Find post in cache
-    const post = cache.data?.find(p => p.id === postId);
-    if (!post) return res.status(404).json({ ok: false, error: "Post not found" });
-
-    // Zora mint metadata
-    const metadata = {
-      name:        `HypeSniper: @${post.author}`,
-      description: post.text.slice(0, 200),
-      image:       `https://api.hypesniper.xyz/og/${postId}`,
-      attributes: [
-        { trait_type: "Viral Score",  value: post.score },
-        { trait_type: "Author",       value: post.author },
-        { trait_type: "Minted Via",   value: "HypeSniper" },
-        { trait_type: "Engine",       value: post.engine || "local" },
-      ],
-    };
-
-    // Zora contract details for Base L2
-    const zoraConfig = {
-      chain:        "base",
-      chainId:      8453,
-      contract:     "0x777777C338d93e2C7adf08D102d45CA7CC4Ed021", // Zora 1155 factory
-      mintFee:      "0.000777",
-      currency:     "ETH",
-      metadata,
-      // In production: use @zoralabs/creator-client to build tx
-      // For now: return config for frontend to use with wagmi
-      zoraUrl:      `https://zora.co/create/single-edition`,
-    };
-
-    console.log(`[mint] Prepared mint for post ${postId} · wallet: ${wallet || "not provided"}`);
-
-    res.json({
-      ok:         true,
-      postId,
-      author:     post.author,
-      score:      post.score,
-      zoraConfig,
-      message:    "Mint config ready. Connect wallet to proceed.",
-    });
-  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
-// GET /health
-app.get("/health", (req, res) => {
-  res.json({
-    ok:      true,
-    uptime:  Math.floor(process.uptime()) + "s",
-    engine:  process.env.OPENROUTER_API_KEY ? "openrouter" : "local",
-    source:  process.env.NEYNAR_API_KEY     ? "neynar"     : "mock",
-    cached:  !!cache.data,
-  });
-});
-
-app.get("/", (req, res) => {
-  res.json({ name: "Farcaster Hype Sniper", version: "2.0.0",
-    endpoints: ["GET /feed","POST /refresh","POST /mint","GET /health"] });
-});
-
-app.listen(PORT, () => {
-  console.log("\n╔══════════════════════════════════════╗");
-  console.log("║  Farcaster Hype Sniper v2.0          ║");
-  console.log(`║  http://localhost:${PORT}               ║`);
-  console.log("╚══════════════════════════════════════╝\n");
-  console.log(`Engine : ${process.env.OPENROUTER_API_KEY ? "OpenRouter 🤖" : "Local ⚡"}`);
-  console.log(`Source : ${process.env.NEYNAR_API_KEY     ? "Neynar (real) 🟣" : "Mock data 🎭"}\n`);
-});
+module.exports = { getFarcasterFeed };
