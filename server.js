@@ -9,226 +9,157 @@ const NEYNAR_BASE = "https://api.neynar.com/v2/farcaster";
 app.use(cors());
 app.use(express.json());
 
-function neynarHeaders() {
+// ─── Cache ────────────────────────────────────────────────────────────────────
+let cache = { posts: [], lastUpdated: null };
+
+// ─── Neynar fetch helper ──────────────────────────────────────────────────────
+async function neynar(path, params = {}) {
+  if (!NEYNAR_API_KEY) throw new Error("NEYNAR_API_KEY not set in environment");
+  const url = new URL(`${NEYNAR_BASE}${path}`);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null) url.searchParams.set(k, String(v));
+  });
+  const res = await fetch(url.toString(), {
+    headers: {
+      accept: "application/json",
+      "x-api-key": NEYNAR_API_KEY,
+    },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => res.statusText);
+    throw new Error(`Neynar ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+// ─── Viral scorer ─────────────────────────────────────────────────────────────
+function scorePost(cast) {
+  const likes     = cast.reactions?.likes_count   ?? 0;
+  const recasts   = cast.reactions?.recasts_count ?? 0;
+  const replies   = cast.replies?.count           ?? 0;
+  const followers = cast.author?.follower_count   ?? 1;
+
+  const engagement = likes + recasts * 2 + replies * 1.5;
+  const ratio      = Math.min(engagement / Math.max(followers, 1), 1);
+  const velocity   = Math.min((likes + recasts) / 10, 20);
+
+  const text = (cast.text || "").toLowerCase();
+  const buzz = [
+    "airdrop","nft","mint","defi","pump","alpha","launch","drop",
+    "free","earn","claim","zora","base","onchain","viral","breaking",
+  ].filter(w => text.includes(w)).length;
+
+  let score = Math.round(
+    ratio * 40 +
+    velocity +
+    Math.min(likes / 5, 15) +
+    Math.min(recasts * 2, 15) +
+    Math.min(buzz * 4, 16)
+  );
+  score = Math.min(100, Math.max(0, score));
+
+  const flags = [];
+  if (ratio > 0.3)   flags.push("exceptional engagement ratio");
+  if (recasts > 30)  flags.push("rapid recasting velocity");
+  if (likes > 100)   flags.push("high like count");
+  if (buzz >= 2)     flags.push("trending keywords detected");
+  if (velocity > 15) flags.push("explosive growth signal");
+
   return {
-    accept: "application/json",
-    "content-type": "application/json",
-    "x-api-key": NEYNAR_API_KEY,
+    score,
+    reason: flags.length
+      ? "⚡ " + flags[0].charAt(0).toUpperCase() + flags[0].slice(1)
+      : "📊 Steady engagement",
+    viral: score >= 65,
   };
 }
 
-async function neynarGet(path, params = {}) {
-  const url = new URL(`${NEYNAR_BASE}${path}`);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) url.searchParams.set(k, v);
-  });
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: neynarHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw { status: res.status, message: err };
-  }
-  return res.json();
+// ─── Transform Neynar cast → frontend shape ───────────────────────────────────
+function transform(cast) {
+  const { score, reason, viral } = scorePost(cast);
+  const minutesAgo = Math.max(
+    0,
+    Math.round((Date.now() - new Date(cast.timestamp).getTime()) / 60000)
+  );
+  return {
+    id:          cast.hash,
+    author:      cast.author?.username     ?? "unknown",
+    text:        cast.text                 ?? "",
+    score,
+    viral,
+    reason,
+    likes:       cast.reactions?.likes_count   ?? 0,
+    recasts:     cast.reactions?.recasts_count ?? 0,
+    replies:     cast.replies?.count           ?? 0,
+    followers:   cast.author?.follower_count   ?? 0,
+    minutesAgo,
+  };
 }
 
-async function neynarPost(path, body = {}) {
-  const res = await fetch(`${NEYNAR_BASE}${path}`, {
-    method: "POST",
-    headers: neynarHeaders(),
-    body: JSON.stringify(body),
+// ─── Fetch trending casts from Neynar, score & cache them ────────────────────
+async function fetchAndScore() {
+  const data  = await neynar("/feed/trending", { limit: 40, time_window: "6h" });
+  const posts = (data.casts || []).map(transform).sort((a, b) => b.score - a.score);
+  cache = { posts, lastUpdated: new Date().toISOString() };
+  return posts;
+}
+
+// ─── Build the exact response shape the frontend expects ─────────────────────
+function respond(res, posts, source = "neynar") {
+  res.json({
+    ok:          true,
+    count:       posts.length,
+    viralCount:  posts.filter(p => p.viral).length,
+    posts,
+    engine:      "local",
+    source,
+    lastUpdated: cache.lastUpdated || new Date().toISOString(),
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw { status: res.status, message: err };
-  }
-  return res.json();
 }
 
-function handleError(res, err) {
-  const status = err.status || 500;
-  const message = err.message || "Internal server error";
-  res.status(status).json({ error: message });
-}
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.get("/health", (req, res) => {
-  res.json({ ok: true, ts: Date.now() });
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now(), neynarKeySet: !!NEYNAR_API_KEY });
 });
 
-// Feed
-app.get("/feed", async (req, res) => {
+// GET /feed — serve from cache if < 5 min old, else refetch
+app.get("/feed", async (_req, res) => {
   try {
-    const { feed_type = "following", fid, cursor, limit = 25 } = req.query;
-    const data = await neynarGet("/feed", { feed_type, fid, cursor, limit });
-    res.json(data);
+    const age  = cache.lastUpdated
+      ? Date.now() - new Date(cache.lastUpdated).getTime()
+      : Infinity;
+    const posts = age < 5 * 60 * 1000 && cache.posts.length
+      ? cache.posts
+      : await fetchAndScore();
+    respond(res, posts);
   } catch (err) {
-    handleError(res, err);
+    console.error("GET /feed:", err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Trending feed
-app.get("/feed/trending", async (req, res) => {
+// POST /refresh — force fresh pull from Neynar
+app.post("/refresh", async (_req, res) => {
   try {
-    const { limit = 25, cursor, channel_id, time_window, provider } = req.query;
-    const data = await neynarGet("/feed/trending", {
-      limit,
-      cursor,
-      channel_id,
-      time_window,
-      provider,
-    });
-    res.json(data);
+    const posts = await fetchAndScore();
+    respond(res, posts);
   } catch (err) {
-    handleError(res, err);
+    console.error("POST /refresh:", err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// User by FID
-app.get("/user/:fid", async (req, res) => {
-  try {
-    const { fid } = req.params;
-    const data = await neynarGet("/user/bulk", { fids: fid });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
+// POST /mint — record mint intent (actual minting happens on Zora via client)
+app.post("/mint", (req, res) => {
+  const { postId, wallet, signature } = req.body || {};
+  console.log("Mint:", { postId, wallet, sig: String(signature).slice(0, 20) });
+  res.json({ ok: true, postId, wallet, ts: Date.now() });
 });
 
-// User by username
-app.get("/user/by-username/:username", async (req, res) => {
-  try {
-    const { username } = req.params;
-    const data = await neynarGet("/user/by_username", { username });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Cast by hash
-app.get("/cast/:hash", async (req, res) => {
-  try {
-    const { hash } = req.params;
-    const data = await neynarGet("/cast", { identifier: hash, type: "hash" });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Casts by FID
-app.get("/casts", async (req, res) => {
-  try {
-    const { fid, cursor, limit = 25 } = req.query;
-    const data = await neynarGet("/feed", {
-      feed_type: "filter",
-      filter_type: "fids",
-      fids: fid,
-      cursor,
-      limit,
-    });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Reactions on a cast
-app.get("/cast/:hash/reactions", async (req, res) => {
-  try {
-    const { hash } = req.params;
-    const { reaction_type = "likes", limit = 25, cursor } = req.query;
-    const data = await neynarGet("/reactions/cast", {
-      hash,
-      types: reaction_type,
-      limit,
-      cursor,
-    });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Search users
-app.get("/search/users", async (req, res) => {
-  try {
-    const { q, limit = 10, cursor } = req.query;
-    const data = await neynarGet("/user/search", { q, limit, cursor });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Search casts
-app.get("/search/casts", async (req, res) => {
-  try {
-    const { q, limit = 25, cursor, priority_mode } = req.query;
-    const data = await neynarGet("/cast/search", {
-      q,
-      limit,
-      cursor,
-      priority_mode,
-    });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Channel info
-app.get("/channel/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const data = await neynarGet("/channel", { id });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Channel feed
-app.get("/channel/:id/feed", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { limit = 25, cursor } = req.query;
-    const data = await neynarGet("/feed/channel", {
-      channel_ids: id,
-      limit,
-      cursor,
-    });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Followers of a user
-app.get("/user/:fid/followers", async (req, res) => {
-  try {
-    const { fid } = req.params;
-    const { limit = 25, cursor } = req.query;
-    const data = await neynarGet("/followers", { fid, limit, cursor });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// Following of a user
-app.get("/user/:fid/following", async (req, res) => {
-  try {
-    const { fid } = req.params;
-    const { limit = 25, cursor } = req.query;
-    const data = await neynarGet("/following", { fid, limit, cursor });
-    res.json(data);
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
+// ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`HypeSniper backend · port ${PORT}`);
+  console.log(`NEYNAR_API_KEY: ${NEYNAR_API_KEY ? "✅ set" : "❌ MISSING — set in Railway Variables"}`);
+  fetchAndScore().catch(err => console.error("Warm-up failed:", err.message));
 });
