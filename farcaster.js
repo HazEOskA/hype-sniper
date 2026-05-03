@@ -1,29 +1,34 @@
-const axios = require("axios");
+import axios from "axios";
 
-async function getFarcasterFeed() {
+export async function getFarcasterFeed() {
   try {
-    const res = await axios.get(
-      "https://api.neynar.com/v2/farcaster/feed",
-      
-      headers: { "x-api-key": process.env.NEYNAR_API_KEY },
-        params: { limit: 50 }
-      }
+    const fids = [2, 3, 5, 8, 12, 20, 50, 100];
+    const results = await Promise.all(
+      fids.map(fid =>
+        axios.get(`https://hub.pinata.cloud/v1/castsByFid?fid=${fid}&limit=8`)
+          .then(r => r.data.messages || [])
+          .catch(() => [])
+      )
     );
-    const posts = (res.data.casts || []).map(p => ({
-      id: p.hash,
-      text: p.text || "",
-      author: p.author?.username || "unknown",
-      followers: p.author?.follower_count || 0,
-      likes: p.reactions?.likes_count || 0,
-      recasts: p.reactions?.recasts_count || 0,
-      replies: p.replies?.count || 0,
-      timestamp: p.timestamp || Date.now()
-    }));
-    return { posts, source: "neynar" };
+
+    const posts = results.flat()
+      .filter(m => m.data?.castAddBody?.text)
+      .map(m => ({
+        id: m.hash,
+        text: m.data.castAddBody.text,
+        author: "fid:" + m.data.fid,
+        followers: 0,
+        likes: 0,
+        recasts: 0,
+        replies: 0,
+        timestamp: m.data.timestamp
+      }))
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 50);
+
+    return { posts, source: "hub" };
   } catch (e) {
     console.error("[farcaster] Error:", e.message);
     return { posts: [], source: "error" };
   }
 }
-
-module.exports = { getFarcasterFeed };
