@@ -4,6 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -13,45 +14,70 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', port: PORT });
+  res.json({ ok: true, status: 'ok', port: PORT });
 });
 
 app.get('/feed', async (req, res) => {
   try {
     if (!process.env.NEYNAR_API_KEY) {
-      return res.status(500).json({ ok: false, error: 'NEYNAR_API_KEY not set' });
+      return res.status(500).json({ ok: false, error: 'NEYNAR_API_KEY not set', posts: [] });
     }
-    const response = await axios.get('https://api.neynar.com/v2/farcaster/feed', {
+
+    const response = await axios.get('https://api.neynar.com/v2/farcaster/cast/search', {
       headers: { 'x-api-key': process.env.NEYNAR_API_KEY },
-      params: { feed_type: 'following', fid: 3, limit: 25 },
+      params: { q: 'crypto', limit: 25 },
       timeout: 10000
     });
-    const casts = response.data.casts || [];
-    const posts = casts.map(c => ({
-      id: c.hash,
-      text: c.text,
-      author: c.author?.username || 'unknown',
-      followers: c.author?.follower_count || 0,
-      likes: c.reactions?.likes_count || 0,
-      recasts: c.reactions?.recasts_count || 0,
-      replies: c.replies?.count || 0,
-      score: Math.min(100, Math.floor((c.reactions?.likes_count || 0) / 5)),
-      reason: 'Trending',
-      minutesAgo: Math.floor((Date.now() / 1000 - c.timestamp) / 60)
-    }));
-    res.json({ ok: true, posts });
+
+    const casts = Array.isArray(response.data?.result?.casts)
+      ? response.data.result.casts
+      : [];
+
+    const posts = casts.map((c, i) => {
+      const likes = c?.reactions?.likes_count ?? 0;
+      const recasts = c?.reactions?.recasts_count ?? 0;
+      const replies = c?.replies?.count ?? 0;
+      const followers = c?.author?.follower_count ?? 0;
+      const score = Math.min(100, likes * 2 + recasts * 3 + replies * 2);
+
+      return {
+        id: c?.hash || `post-${i}`,
+        text: c?.text || '',
+        author: c?.author?.username || 'unknown',
+        followers,
+        likes,
+        recasts,
+        replies,
+        score,
+        reason: score >= 80 ? 'High momentum' : 'Trending',
+        minutesAgo: Math.floor((Date.now() - new Date(c?.timestamp).getTime()) / 60000)
+      };
+    });
+
+    return res.json({
+      ok: true,
+      posts,
+      source: 'neynar',
+      engine: 'local',
+      lastUpdated: Date.now()
+    });
+
   } catch (err) {
-    console.error('[feed error]', err.message);
-    res.status(500).json({ ok: false, error: err.message });
+    console.error('[feed error]', err.response?.data || err.message);
+    return res.status(500).json({
+      ok: false,
+      error: err.response?.data?.message || err.message || 'Feed failed',
+      posts: []
+    });
   }
 });
 
 app.post('/refresh', async (req, res) => {
-  res.json({ ok: true, posts: [] });
+  return res.json({ ok: true, posts: [], source: 'neynar', engine: 'local', lastUpdated: Date.now() });
 });
 
 app.post('/mint', async (req, res) => {
-  res.json({ ok: true, txHash: '0x0000' });
+  return res.json({ ok: true, txHash: '0x0000' });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
