@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+<title>HypeSniper</title>
+<script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.0/dist/index.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#080b10;--bg2:#0d1117;--bg3:#111722;--border:#1e293b;--accent:#00f5a0;--purple:#7c3aed;--orange:#f97316;--danger:#ef4444;--blue:#3b82f6;--text:#e2e8f0;--muted:#64748b}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;padding-bottom:100px;overflow-x:hidden}
+.header{background:linear-gradient(180deg,#0a1020,var(--bg));border-bottom:1px solid var(--border);padding:16px 14px 12px;position:sticky;top:0;z-index:100;backdrop-filter:blur(16px)}
+.h1{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.logo{font-size:20px;font-weight:800;color:#fff;letter-spacing:-.5px}
+.logo span{color:var(--accent)}
+.badges{display:flex;gap:6px;align-items:center}
+.badge{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:700;cursor:pointer}
+.badge-green{background:rgba(0,245,160,.1);border:1px solid rgba(0,245,160,.25);color:var(--accent)}
+.badge-purple{background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);color:#a78bfa}
+.badge-orange{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);color:var(--orange)}
+.badge-blue{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);color:#60a5fa}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:5px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.stats{display:flex;gap:0;margin-bottom:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.stat{flex:1;padding:8px 0;text-align:center;border-right:1px solid var(--border)}
+.stat:last-child{border-right:none}
+.sv{font-size:18px;font-weight:800;color:#fff;line-height:1}
+.sl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:1px}
+.sv.green{color:var(--accent)}.sv.orange{color:var(--orange)}
+.controls{display:flex;gap:6px}
+.rbtn{flex:1;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.25);color:var(--accent);font-size:12px;font-weight:700;padding:9px;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .2s}
+.rbtn:hover{background:rgba(0,245,160,.15)}
+.rbtn:disabled{opacity:.4;cursor:not-allowed}
+.wbtn{background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);color:#a78bfa;font-size:12px;font-weight:700;padding:9px 14px;border-radius:7px;cursor:pointer;white-space:nowrap;transition:all .2s;display:flex;align-items:center;gap:6px}
+.wbtn.connected{background:rgba(0,245,160,.08);border-color:rgba(0,245,160,.3);color:var(--accent)}
+.wbtn:hover{opacity:.85}
+.spin{animation:spin 1s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.filters{display:flex;gap:6px;padding:10px 14px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--border)}
+.filters::-webkit-scrollbar{display:none}
+.filter{background:var(--bg2);border:1px solid var(--border);color:var(--muted);font-size:11px;font-weight:600;padding:5px 12px;border-radius:20px;cursor:pointer;white-space:nowrap;transition:all .2s}
+.filter.active{background:rgba(0,245,160,.1);border-color:rgba(0,245,160,.3);color:var(--accent)}
+.feed{padding:10px 12px 0;display:flex;flex-direction:column;gap:8px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:13px;transition:all .3s;animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.card.viral{border-color:rgba(0,245,160,.4);box-shadow:0 0 24px rgba(0,245,160,.12)}
+.card.high{border-color:rgba(249,115,22,.35)}
+.card.hidden{display:none}
+.ch{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:9px;gap:8px}
+.ar{display:flex;align-items:center;gap:8px}
+.av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
+.an{font-weight:700;font-size:13px;color:#fff}
+.af{font-size:10px;color:var(--muted)}
+.ring{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;border:2.5px solid;flex-shrink:0}
+.ring.viral{border-color:var(--accent);color:var(--accent);background:rgba(0,245,160,.08)}
+.ring.high{border-color:var(--orange);color:var(--orange);background:rgba(249,115,22,.08)}
+.ring.medium{border-color:var(--blue);color:#60a5fa;background:rgba(59,130,246,.08)}
+.ring.low{border-color:var(--border);color:var(--muted)}
+.score-bar-bg{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:8px}
+.score-bar-fill{height:100%;border-radius:2px;transition:width .6s ease}
+.pt{font-size:13px;line-height:1.55;color:var(--text);margin-bottom:8px;word-break:break-word}
+.rb{font-size:11px;padding:5px 8px;border-radius:0 4px 4px 0;margin-bottom:9px;border-left:2.5px solid}
+.rb.viral{color:var(--accent);background:rgba(0,245,160,.07);border-color:var(--accent)}
+.rb.high{color:var(--orange);background:rgba(249,115,22,.07);border-color:var(--orange)}
+.rb.medium{color:#60a5fa;background:rgba(59,130,246,.07);border-color:var(--blue)}
+.rb.low{color:var(--muted);background:rgba(100,116,139,.07);border-color:var(--border)}
+.strow{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--muted)}
+.si{display:flex;align-items:center;gap:3px}
+.vl{display:inline-flex;align-items:center;gap:3px;background:rgba(0,245,160,.12);border:1px solid rgba(0,245,160,.3);color:var(--accent);font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;padding:2px 7px;border-radius:3px;margin-left:auto}
+.ta{margin-left:auto;font-size:10px;color:var(--muted)}
+.mbtn{width:100%;margin-top:10px;background:linear-gradient(135deg,rgba(0,245,160,.12),rgba(124,58,237,.12));border:1px solid rgba(0,245,160,.3);color:var(--accent);font-size:13px;font-weight:700;padding:11px;border-radius:7px;cursor:pointer;transition:all .2s}
+.mbtn:active{transform:scale(.98)}
+.mbtn.no-wallet{border-color:rgba(124,58,237,.3);color:#a78bfa;background:rgba(124,58,237,.08)}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);z-index:200;display:none;align-items:flex-end;justify-content:center}
+.modal-overlay.open{display:flex;animation:fadeIn .2s ease}
+.modal{background:var(--bg2);border:1px solid var(--border);border-top:1px solid rgba(0,245,160,.3);border-radius:16px 16px 0 0;padding:20px;width:100%;max-width:500px;animation:slideUp .3s ease;max-height:85vh;overflow-y:auto}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-handle{width:40px;height:3px;background:var(--border);border-radius:2px;margin:0 auto 16px}
+.modal-title{font-size:17px;font-weight:800;color:#fff;margin-bottom:4px}
+.modal-sub{font-size:11px;color:var(--muted);margin-bottom:16px}
+.mint-info{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px}
+.mint-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(30,41,59,.5)}
+.mint-row:last-child{border-bottom:none}
+.mint-row .k{color:var(--muted)}
+.mint-row .v{color:#fff;font-weight:600}
+.mint-row .v.green{color:var(--accent)}
+.modal-btns{display:flex;gap:8px;margin-top:4px}
+.modal-cancel{flex:1;background:none;border:1px solid var(--border);color:var(--muted);font-size:13px;font-weight:600;padding:12px;border-radius:7px;cursor:pointer}
+.modal-confirm{flex:2;background:linear-gradient(135deg,rgba(0,245,160,.2),rgba(124,58,237,.2));border:1px solid rgba(0,245,160,.35);color:var(--accent);font-size:13px;font-weight:700;padding:12px;border-radius:7px;cursor:pointer;transition:all .2s}
+.modal-confirm:disabled{opacity:.5;cursor:not-allowed}
+.wallet-addr{background:var(--bg3);border:1px solid rgba(0,245,160,.2);border-radius:6px;padding:8px 12px;font-size:11px;color:var(--accent);word-break:break-all;margin-bottom:12px;text-align:center}
+.chain-warn{background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.2);border-radius:6px;padding:10px;font-size:11px;color:var(--orange);margin-bottom:12px;text-align:center}
+.success-box{text-align:center;padding:8px 0}
+.success-box .ico{font-size:44px;margin-bottom:10px}
+.success-box .title{font-size:16px;font-weight:800;color:var(--accent);margin-bottom:6px}
+.success-box .sub{font-size:11px;color:var(--muted);margin-bottom:14px}
+.tx-box{background:var(--bg3);border:1px solid rgba(0,245,160,.15);border-radius:6px;padding:10px;font-size:10px;color:var(--accent);word-break:break-all;margin-bottom:10px}
+.sig-box{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:9px;color:var(--muted);word-break:break-all;margin-bottom:12px;max-height:60px;overflow:hidden}
+.skel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:13px}
+.sl2{background:linear-gradient(90deg,var(--bg3) 25%,#1a2332 50%,var(--bg3) 75%);background-size:200% 100%;animation:sh 1.5s infinite;border-radius:4px;height:11px;margin-bottom:7px}
+@keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.errbox{margin:16px;background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:16px;color:var(--danger);text-align:center}
+.errbox p{margin:8px 0;color:var(--muted);font-size:12px}
+.ubar{text-align:center;font-size:10px;color:var(--muted);padding:14px;letter-spacing:.5px}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="h1">
+    <div class="logo">Hype<span>Sniper</span></div>
+    <div class="badges">
+      <div class="badge badge-green"><span class="dot"></span><span id="engBadge">LIVE</span></div>
+      <div class="badge badge-purple" id="srcBadge">MOCK</div>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="sv" id="tc">—</div><div class="sl">Posts</div></div>
+    <div class="stat"><div class="sv green" id="vc">—</div><div class="sl">Viral</div></div>
+    <div class="stat"><div class="sv orange" id="ts">—</div><div class="sl">Top Score</div></div>
+    <div class="stat"><div class="sv" id="timer">60s</div><div class="sl">Refresh</div></div>
+  </div>
+  <div class="controls">
+    <button class="rbtn" id="rbtn" onclick="loadFeed(true)">
+      <span id="ri">⟳</span> Refresh
+    </button>
+    <button class="wbtn" id="wbtn" onclick="toggleWallet()">
+      <span id="wicon">🔗</span>
+      <span id="wlabel">Connect</span>
+    </button>
+  </div>
+</header>
+
+<div class="filters">
+  <div class="filter active" onclick="setFilter('all',this)">🔥 All</div>
+  <div class="filter" onclick="setFilter('viral',this)">🚀 Viral</div>
+  <div class="filter" onclick="setFilter('high',this)">⚡ High Score</div>
+  <div class="filter" onclick="setFilter('airdrop',this)">🪂 Airdrop</div>
+  <div class="filter" onclick="setFilter('nft',this)">🎨 NFT/Mint</div>
+  <div class="filter" onclick="setFilter('defi',this)">💰 DeFi</div>
+</div>
+
+<main class="feed" id="feed">
+  <div class="skel"><div class="sl2" style="width:55%"></div><div class="sl2" style="width:88%"></div><div class="sl2" style="width:70%"></div></div>
+  <div class="skel"><div class="sl2" style="width:65%"></div><div class="sl2" style="width:75%"></div><div class="sl2" style="width:80%"></div></div>
+  <div class="skel"><div class="sl2" style="width:45%"></div><div class="sl2" style="width:90%"></div><div class="sl2" style="width:60%"></div></div>
+</main>
+<div class="ubar" id="ubar"></div>
+
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-handle"></div>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<script>
+const API     = "http://localhost:3000";
+const WC_ID   = "7bdd88176636afda4f43fb1c98f8dfba";
+const BASE_ID = 8453;
+
+let busy=false, allPosts=[], currentFilter="all", countdown=60;
+let provider=null, signer=null, walletAddr=null, wcProvider=null;
+
+// ─── HELPERS ───────────────────────────────────────────
+function fmt(n){return n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(1)+"K":String(n)}
+function ago(m){return m<1?"just now":m<60?m+"m ago":Math.floor(m/60)+"h ago"}
+function tier(s,v){return(v||s>=65)?"viral":s>=45?"high":s>=25?"medium":"low"}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function init(u){return(u||"?").slice(0,2).toUpperCase()}
+function shortAddr(a){return a?a.slice(0,6)+"..."+a.slice(-4):""}
+function avatarColor(u){
+  const c=["linear-gradient(135deg,#7c3aed,#00f5a0)","linear-gradient(135deg,#f97316,#ef4444)","linear-gradient(135deg,#3b82f6,#7c3aed)","linear-gradient(135deg,#00f5a0,#3b82f6)","linear-gradient(135deg,#a855f7,#f97316)"];
+  return c[(u||"").charCodeAt(0)%c.length];
+}
+function scoreColor(s){return s>=65?"var(--accent)":s>=45?"var(--orange)":s>=25?"var(--blue)":"var(--muted)"}
+
+// ─── WALLET ────────────────────────────────────────────
+async function toggleWallet(){
+  if(walletAddr){ disconnectWallet(); return; }
+  await connectWallet();
+}
+
+async function connectWallet(){
+  const btn=document.getElementById("wbtn");
+  const lbl=document.getElementById("wlabel");
+  const ico=document.getElementById("wicon");
+  lbl.textContent="Connecting...";
+  ico.className="spin";
+  ico.textContent="↻";
+
+  try{
+    // Option 1: MetaMask / injected wallet
+    if(window.ethereum){
+      provider = new ethers.providers.Web3Provider(window.ethereum);
+      await provider.send("eth_requestAccounts",[]);
+      signer   = provider.getSigner();
+      walletAddr = await signer.getAddress();
+      await switchToBase();
+      updateWalletUI();
+      return;
+    }
+
+    // Option 2: WalletConnect
+    wcProvider = await window.EthereumProvider.init({
+      projectId: WC_ID,
+      chains:    [BASE_ID],
+      showQrModal: true,
+      metadata:{
+        name:        "HypeSniper",
+        description: "Viral Farcaster Hype Detector",
+        url:         "http://localhost:8080",
+        icons:       ["https://avatars.githubusercontent.com/u/37784886"]
+      }
+    });
+
+    await wcProvider.connect();
+    provider   = new ethers.providers.Web3Provider(wcProvider);
+    signer     = provider.getSigner();
+    walletAddr = await signer.getAddress();
+    await switchToBase();
+    updateWalletUI();
+
+  }catch(e){
+    console.error("Wallet connect failed:",e);
+    lbl.textContent="Connect";
+    ico.className="";
+    ico.textContent="🔗";
+    alert("Wallet connection failed: "+e.message);
+  }
+}
+
+async function switchToBase(){
+  try{
+    const p = window.ethereum || wcProvider;
+    await p.request({
+      method:"wallet_switchEthereumChain",
+      params:[{chainId:"0x2105"}] // Base = 8453
+    });
+  }catch(e){
+    // Chain not added yet — add it
+    if(e.code===4902||e.code===-32603){
+      const p = window.ethereum || wcProvider;
+      await p.request({
+        method:"wallet_addEthereumChain",
+        params:[{
+          chainId:         "0x2105",
+          chainName:       "Base",
+          nativeCurrency:  {name:"ETH",symbol:"ETH",decimals:18},
+          rpcUrls:         ["https://mainnet.base.org"],
+          blockExplorerUrls:["https://basescan.org"]
+        }]
+      });
+    }
+  }
+}
+
+function updateWalletUI(){
+  const btn=document.getElementById("wbtn");
+  const lbl=document.getElementById("wlabel");
+  const ico=document.getElementById("wicon");
+  btn.classList.add("connected");
+  ico.className="";
+  ico.textContent="✅";
+  lbl.textContent=shortAddr(walletAddr);
+}
+
+async function disconnectWallet(){
+  if(wcProvider) await wcProvider.disconnect().catch(()=>{});
+  provider=null; signer=null; walletAddr=null; wcProvider=null;
+  const btn=document.getElementById("wbtn");
+  const lbl=document.getElementById("wlabel");
+  const ico=document.getElementById("wicon");
+  btn.classList.remove("connected");
+  ico.textContent="🔗";
+  lbl.textContent="Connect";
+}
+
+// ─── FILTER ────────────────────────────────────────────
+function setFilter(f,el){
+  currentFilter=f;
+  document.querySelectorAll(".filter").forEach(e=>e.classList.remove("active"));
+  el.classList.add("active");
+  applyFilter();
+}
+function applyFilter(){
+  document.querySelectorAll(".card").forEach(card=>{
+    const s=parseInt(card.dataset.score)||0;
+    const v=card.dataset.viral==="true";
+    const text=(card.dataset.text||"");
+    let show=true;
+    if(currentFilter==="viral")   show=v||s>=65;
+    else if(currentFilter==="high")    show=s>=45;
+    else if(currentFilter==="airdrop") show=text.includes("airdrop")||text.includes("drop");
+    else if(currentFilter==="nft")     show=text.includes("nft")||text.includes("mint")||text.includes("zora");
+    else if(currentFilter==="defi")    show=text.includes("defi")||text.includes("swap")||text.includes("liquidity");
+    card.classList.toggle("hidden",!show);
+  });
+}
+
+// ─── RENDER CARD ───────────────────────────────────────
+function makeCard(p){
+  const t=tier(p.score,p.viral), iv=p.viral||p.score>=65;
+  const d=document.createElement("div");
+  d.className="card"+(iv?" viral":t==="high"?" high":"");
+  d.dataset.score=p.score;
+  d.dataset.viral=p.viral;
+  d.dataset.text=(p.text||"").toLowerCase();
+  const mintBtn = iv
+    ? `<button class="mbtn${walletAddr?'':' no-wallet'}" onclick='openMint(${JSON.stringify(p).replace(/'/g,"&#39;")})'>
+        ${walletAddr?"⚡ Mint Before Viral — Score "+p.score:"🔗 Connect Wallet to Mint"}
+       </button>`
+    : "";
+  d.innerHTML=`
+  <div class="ch">
+    <div class="ar">
+      <div class="av" style="background:${avatarColor(p.author)}">${init(p.author)}</div>
+      <div><div class="an">@${esc(p.author)}</div><div class="af">${fmt(p.followers)} followers · ${ago(p.minutesAgo)}</div></div>
+    </div>
+    <div class="ring ${t}">${p.score}</div>
+  </div>
+  <div class="score-bar-bg"><div class="score-bar-fill" style="width:${p.score}%;background:${scoreColor(p.score)}"></div></div>
+  <div class="pt">${esc(p.text)}</div>
+  <div class="rb ${t}">⚡ ${esc(p.reason)}</div>
+  <div class="strow">
+    <div class="si">❤️ ${fmt(p.likes)}</div>
+    <div class="si">🔁 ${fmt(p.recasts)}</div>
+    <div class="si">💬 ${fmt(p.replies)}</div>
+    ${iv?`<div class="vl">🚀 VIRAL</div>`:`<div class="ta">${ago(p.minutesAgo)}</div>`}
+  </div>
+  ${mintBtn}`;
+  return d;
+}
+
+// ─── LOAD FEED ─────────────────────────────────────────
+async function loadFeed(force=false){
+  if(busy)return;
+  busy=true;
+  const btn=document.getElementById("rbtn"),ri=document.getElementById("ri");
+  btn.disabled=true;ri.className="spin";ri.textContent="↻";
+  try{
+    const r=await fetch(force?`${API}/refresh`:`${API}/feed`,{method:force?"POST":"GET"});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json();
+    if(!d.ok)throw new Error(d.error||"API error");
+    document.getElementById("tc").textContent=d.count;
+    document.getElementById("vc").textContent=d.viralCount;
+    document.getElementById("ts").textContent=d.posts.length?d.posts[0].score:0;
+    document.getElementById("engBadge").textContent=
+      d.engine==="openrouter"?"OPENROUTER":d.engine==="claude"?"CLAUDE":"LOCAL AI";
+    document.getElementById("srcBadge").textContent=d.source==="neynar"?"NEYNAR":"MOCK";
+    document.getElementById("srcBadge").className="badge "+(d.source==="neynar"?"badge-orange":"badge-purple");
+    document.getElementById("ubar").textContent=
+      "Updated "+new Date(d.lastUpdated).toLocaleTimeString()+" · "+d.engine+" · "+(d.source||"mock");
+    allPosts=d.posts;
+    const feed=document.getElementById("feed");
+    feed.innerHTML="";
+    d.posts.forEach(p=>feed.appendChild(makeCard(p)));
+    applyFilter();
+    countdown=60;
+  }catch(e){
+    document.getElementById("feed").innerHTML=`
+    <div class="errbox"><strong>❌ Cannot connect to backend</strong>
+    <p>${esc(e.message)}</p>
+    <p>Run: <code>cd ~/farcaster-dapp && node server.js</code></p>
+    <button class="rbtn" onclick="loadFeed()" style="margin-top:10px;width:100%">↻ Try Again</button></div>`;
+  }finally{
+    busy=false;btn.disabled=false;ri.className="";ri.textContent="⟳";
+  }
+}
+
+// ─── COUNTDOWN ─────────────────────────────────────────
+setInterval(()=>{
+  countdown--;
+  document.getElementById("timer").textContent=countdown+"s";
+  if(countdown<=0){loadFeed(false);countdown=60;}
+},1000);
+
+// ─── MINT MODAL ────────────────────────────────────────
+let mintPost=null;
+
+function openMint(p){
+  mintPost=p;
+  if(!walletAddr){
+    document.getElementById("modalContent").innerHTML=`
+    <div class="modal-title">🔗 Connect Wallet First</div>
+    <div class="modal-sub">You need a wallet to mint on Zora · Base L2</div>
+    <div style="text-align:center;padding:20px 0;font-size:36px">👛</div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-confirm" onclick="closeModal();connectWallet()">Connect Wallet</button>
+    </div>`;
+    document.getElementById("modalOverlay").classList.add("open");
+    return;
+  }
+  showMintForm(p);
+}
+
+function showMintForm(p){
+  const t=tier(p.score,p.viral);
+  document.getElementById("modalContent").innerHTML=`
+  <div class="modal-title">⚡ Mint Before Viral</div>
+  <div class="modal-sub">Sign & mint this cast as NFT on Zora · Base L2</div>
+  <div class="wallet-addr">🔗 ${shortAddr(walletAddr)}</div>
+  <div class="mint-info">
+    <div class="mint-row"><span class="k">Author</span><span class="v">@${esc(p.author)}</span></div>
+    <div class="mint-row"><span class="k">Viral Score</span><span class="v green">${p.score}/100</span></div>
+    <div class="mint-row"><span class="k">Signal</span><span class="v">${esc(p.reason)}</span></div>
+    <div class="mint-row"><span class="k">Engagement</span><span class="v">❤️${fmt(p.likes)} 🔁${fmt(p.recasts)}</span></div>
+    <div class="mint-row"><span class="k">Chain</span><span class="v">Base L2 (8453)</span></div>
+    <div class="mint-row"><span class="k">Action</span><span class="v">Sign + Mint</span></div>
+  </div>
+  <div class="modal-btns">
+    <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+    <button class="modal-confirm" id="mintBtn" onclick="executeMint()">🚀 Sign & Mint</button>
+  </div>`;
+  document.getElementById("modalOverlay").classList.add("open");
+}
+
+async function executeMint(){
+  const btn=document.getElementById("mintBtn");
+  btn.disabled=true;
+  btn.textContent="⏳ Waiting for signature...";
+
+  try{
+    // Step 1: Sign message — proof of intent
+    const msg=`HypeSniper Mint 🚀\n\nI'm minting @${mintPost.author}'s cast early.\nViral Score: ${mintPost.score}/100\nReason: ${mintPost.reason}\nWallet: ${walletAddr}\nTimestamp: ${new Date().toISOString()}\nPost ID: ${mintPost.id}`;
+
+    const signature = await signer.signMessage(msg);
+
+    btn.textContent="⏳ Preparing mint...";
+
+    // Step 2: Send to backend
+    const r=await fetch(`${API}/mint`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({postId:mintPost.id, wallet:walletAddr, signature})
+    });
+    const d=await r.json();
+
+    // Step 3: Show success
+    document.getElementById("modalContent").innerHTML=`
+    <div class="success-box">
+      <div class="ico">🚀</div>
+      <div class="title">Minted Before Viral!</div>
+      <div class="sub">Score at mint: ${mintPost.score}/100 · @${esc(mintPost.author)}</div>
+      <div class="mint-info" style="text-align:left;margin-bottom:12px">
+        <div class="mint-row"><span class="k">Wallet</span><span class="v green">${shortAddr(walletAddr)}</span></div>
+        <div class="mint-row"><span class="k">Score</span><span class="v green">${mintPost.score}/100</span></div>
+        <div class="mint-row"><span class="k">Chain</span><span class="v">Base L2</span></div>
+        <div class="mint-row"><span class="k">Status</span><span class="v green">✅ Signed</span></div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Your signature (proof of early mint):</div>
+      <div class="sig-box">${signature}</div>
+      <a href="https://zora.co/create/single-edition" target="_blank"
+         style="display:block;text-align:center;color:var(--accent);font-size:12px;border:1px solid rgba(0,245,160,.2);border-radius:6px;padding:10px;margin-bottom:10px;text-decoration:none">
+        🔗 Complete mint on Zora →
+      </a>
+      <button class="modal-cancel" onclick="closeModal()" style="width:100%">Close</button>
+    </div>`;
+
+  }catch(e){
+    btn.disabled=false;
+    btn.textContent="🚀 Sign & Mint";
+    if(e.code===4001||e.message.includes("rejected")){
+      btn.textContent="❌ Rejected";
+    } else {
+      btn.textContent="❌ "+e.message.slice(0,30);
+    }
+    setTimeout(()=>{btn.textContent="🚀 Sign & Mint";btn.style.color=""},2000);
+  }
+}
+
+function closeModal(e){
+  if(!e||e.target===document.getElementById("modalOverlay")){
+    document.getElementById("modalOverlay").classList.remove("open");
+  }
+}
+
+// INIT
+loadFeed();
+</script>
+</body>
+</html>
