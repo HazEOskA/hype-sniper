@@ -5,13 +5,10 @@ async function getFarcasterFeed() {
     const res = await axios.get(
       "https://api.neynar.com/v2/farcaster/feed",
       {
-        headers: {
-          api_key: process.env.NEYNAR_API_KEY
-        },
+        headers: { api_key: process.env.NEYNAR_API_KEY },
         params: { limit: 50 }
       }
     );
-
     const posts = (res.data.casts || []).map(p => ({
       id: p.hash,
       text: p.text || "",
@@ -22,17 +19,10 @@ async function getFarcasterFeed() {
       replies: p.replies?.count || 0,
       timestamp: p.timestamp || Date.now()
     }));
-
-    return {
-      posts,
-      source: "neynar"
-    };
-
+    return { posts, source: "neynar" };
   } catch (e) {
-    return {
-      posts: [],
-      source: "error"
-    };
+    console.error("[farcaster] Error:", e.message);
+    return { posts: [], source: "error" };
   }
 }
 
