@@ -23,7 +23,7 @@ app.get('/feed', async (req, res) => {
     }
     const response = await axios.get('https://api.neynar.com/v2/farcaster/feed', {
       headers: { 'x-api-key': process.env.NEYNAR_API_KEY },
-      params: { feed_type: 'filter', filter_type: 'global_trending', limit: 25 },
+      params: { feed_type: 'following', fid: 3, limit: 25 },
       timeout: 10000
     });
     const casts = response.data.casts || [];
