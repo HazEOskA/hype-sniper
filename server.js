@@ -19,19 +19,15 @@ app.get('/health', (req, res) => {
 
 app.get('/feed', async (req, res) => {
   try {
-    if (!process.env.NEYNAR_API_KEY) {
-      return res.status(500).json({ ok: false, error: 'NEYNAR_API_KEY not set', posts: [] });
-    }
+    const key = process.env.NEYNAR_API_KEY || 'NEYNAR_API_DOCS';
 
-    const response = await axios.get('https://api.neynar.com/v2/farcaster/cast/search', {
-      headers: { 'x-api-key': process.env.NEYNAR_API_KEY },
-      params: { q: 'crypto', limit: 25 },
+    const response = await axios.get('https://api.neynar.com/v2/farcaster/feed/trending', {
+      headers: { 'x-api-key': key },
+      params: { limit: 25 },
       timeout: 10000
     });
 
-    const casts = Array.isArray(response.data?.result?.casts)
-      ? response.data.result.casts
-      : [];
+    const casts = Array.isArray(response.data?.casts) ? response.data.casts : [];
 
     const posts = casts.map((c, i) => {
       const likes = c?.reactions?.likes_count ?? 0;
