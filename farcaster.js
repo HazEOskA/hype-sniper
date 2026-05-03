@@ -4,8 +4,8 @@ async function getFarcasterFeed() {
   try {
     const res = await axios.get(
       "https://api.neynar.com/v2/farcaster/feed",
-      {
-        headers: { api_key: process.env.NEYNAR_API_KEY },
+      
+      headers: { "x-api-key": process.env.NEYNAR_API_KEY },
         params: { limit: 50 }
       }
     );
