@@ -11,7 +11,13 @@ app.use(express.json());
 
 let cache = { posts: [], lastUpdated: null };
 
-async function neynar(path, params = {}) {
+// Popular Farcaster channels to pull casts from (free tier)
+const CHANNELS = ["home", "farcaster", "crypto", "base", "zora", "nft", "defi", "airdrop"];
+
+// Popular FIDs to pull casts from as fallback
+const POPULAR_FIDS = [2, 3, 1317, 5650, 239, 1689, 7143, 3621];
+
+async function neynarGet(path, params = {}) {
   if (!NEYNAR_API_KEY) throw new Error("NEYNAR_API_KEY not set");
   const url = new URL(`${NEYNAR_BASE}${path}`);
   Object.entries(params).forEach(([k, v]) => {
@@ -77,22 +83,93 @@ function transform(cast) {
   );
   return {
     id:        cast.hash,
-    author:    cast.author?.username          ?? "unknown",
-    text:      cast.text                      ?? "",
+    author:    cast.author?.username         ?? "unknown",
+    text:      cast.text                     ?? "",
     score,
     viral,
     reason,
-    likes:     cast.reactions?.likes_count    ?? 0,
-    recasts:   cast.reactions?.recasts_count  ?? 0,
-    replies:   cast.replies?.count            ?? 0,
-    followers: cast.author?.follower_count    ?? 0,
+    likes:     cast.reactions?.likes_count   ?? 0,
+    recasts:   cast.reactions?.recasts_count ?? 0,
+    replies:   cast.replies?.count           ?? 0,
+    followers: cast.author?.follower_count   ?? 0,
     minutesAgo,
   };
 }
 
+// Strategy 1: fetch from popular channels (free tier)
+async function fetchFromChannels() {
+  const channel = CHANNELS[Math.floor(Math.random() * CHANNELS.length)];
+  const data = await neynarGet("/feed/channels", {
+    channel_ids: "home,farcaster,crypto,base",
+    limit: 50,
+  });
+  return (data.casts || []);
+}
+
+// Strategy 2: fetch global feed (free tier)
+async function fetchGlobalFeed() {
+  const data = await neynarGet("/feed", {
+    feed_type: "filter",
+    filter_type: "global_trending",
+    limit: 50,
+  });
+  return (data.casts || []);
+}
+
+// Strategy 3: fetch from popular FIDs (free tier)
+async function fetchFromFids() {
+  const fids = POPULAR_FIDS.join(",");
+  const data = await neynarGet("/feed", {
+    feed_type: "filter",
+    filter_type: "fids",
+    fids,
+    limit: 50,
+  });
+  return (data.casts || []);
+}
+
 async function fetchAndScore() {
-  const data  = await neynar("/feed/trending", { limit: 40, time_window: "6h" });
-  const posts = (data.casts || []).map(transform).sort((a, b) => b.score - a.score);
+  let casts = [];
+  let tried = [];
+
+  // Try strategies in order, use first that works
+  const strategies = [
+    { name: "channels", fn: fetchFromChannels },
+    { name: "global",   fn: fetchGlobalFeed },
+    { name: "fids",     fn: fetchFromFids },
+  ];
+
+  for (const strategy of strategies) {
+    try {
+      console.log(`[neynar] Trying strategy: ${strategy.name}`);
+      casts = await strategy.fn();
+      if (casts.length > 0) {
+        console.log(`[neynar] Got ${casts.length} casts via ${strategy.name}`);
+        break;
+      }
+    } catch (err) {
+      console.warn(`[neynar] ${strategy.name} failed: ${err.message}`);
+      tried.push(strategy.name);
+    }
+  }
+
+  if (casts.length === 0) {
+    throw new Error(`All strategies failed: ${tried.join(", ")}`);
+  }
+
+  // Deduplicate by hash
+  const seen = new Set();
+  const unique = casts.filter(c => {
+    if (!c.hash || seen.has(c.hash)) return false;
+    seen.add(c.hash);
+    return true;
+  });
+
+  const posts = unique
+    .map(transform)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 25);
+
   cache = { posts, lastUpdated: new Date().toISOString() };
   return posts;
 }
