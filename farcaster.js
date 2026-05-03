@@ -1,48 +1,38 @@
-const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
+const axios = require("axios");
 
 async function getFarcasterFeed() {
-  const key = process.env.NEYNAR_API_KEY;
-  if (!key) {
-    console.log('[farcaster] No NEYNAR key, using mock');
-    const { getMockFeed } = require('./mockData');
-    return { posts: getMockFeed(), source: 'mock' };
-  }
-
   try {
-    const res = await fetch(
-      'https://api.neynar.com/v2/farcaster/feed/trending?limit=25&time_window=6h',
+    const res = await axios.get(
+      "https://api.neynar.com/v2/farcaster/feed",
       {
         headers: {
-          'accept': 'application/json',
-          'api_key': key
-        }
+          api_key: process.env.NEYNAR_API_KEY
+        },
+        params: { limit: 50 }
       }
     );
 
-    if (!res.ok) throw new Error('Neynar HTTP ' + res.status);
-    const data = await res.json();
-
-    const posts = data.casts.map(cast => ({
-      id:         cast.hash,
-      author:     cast.author.username,
-      text:       cast.text,
-      likes:      cast.reactions.likes_count,
-      recasts:    cast.reactions.recasts_count,
-      replies:    cast.replies.count,
-      followers:  cast.author.follower_count,
-      minutesAgo: Math.floor((Date.now() - new Date(cast.timestamp).getTime()) / 60000),
-      viral:      false,
-      score:      0,
-      reason:     ''
+    const posts = (res.data.casts || []).map(p => ({
+      id: p.hash,
+      text: p.text || "",
+      author: p.author?.username || "unknown",
+      followers: p.author?.follower_count || 0,
+      likes: p.reactions?.likes_count || 0,
+      recasts: p.reactions?.recasts_count || 0,
+      replies: p.replies?.count || 0,
+      timestamp: p.timestamp || Date.now()
     }));
 
-    console.log(`[farcaster] Fetched ${posts.length} posts from Neynar`);
-    return { posts, source: 'neynar' };
+    return {
+      posts,
+      source: "neynar"
+    };
 
   } catch (e) {
-    console.error('[farcaster] Neynar error:', e.message);
-    const { getMockFeed } = require('./mockData');
-    return { posts: getMockFeed(), source: 'mock' };
+    return {
+      posts: [],
+      source: "error"
+    };
   }
 }
 
