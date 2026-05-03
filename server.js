@@ -1,40 +1,34 @@
-const axios = require("axios");
+const express = require("express");
+const app = express();
 
-const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
-
-// simple in-memory cache (żeby nie zabić API limitów)
-let cache = {
-  data: null,
-  lastFetch: 0
-};
-
-async function getFarcasterFeed() {
-  const now = Date.now();
-
-  // cache 60s
-  if (cache.data && now - cache.lastFetch < 60_000) {
-    return {
-      posts: cache.data,
-      source: "neynar-cache"
-    };
-  }
-
+app.get("/feed", async (req, res) => {
   try {
-    const res = await axios.get(
-      "https://api.neynar.com/v2/farcaster/feed",
+    const key = process.env.NEYNAR_API_KEY;
+
+    if (!key) {
+      return res.status(500).json({
+        error: "Missing NEYNAR_API_KEY in Railway"
+      });
+    }
+
+    const response = await fetch(
+      "https://api.neynar.com/v2/farcaster/feed?limit=10",
       {
         headers: {
-          api_key: NEYNAR_API_KEY
+          "x-api-key": key,
         },
-        params: {
-          limit: 50
-        }
       }
     );
 
-    // normalizacja danych (safe mapping)
-    const posts = (res.data.casts || []).map(p => ({
-      hash: p.hash,
+    const data = await response.json();
+    res.json(data);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = app;      hash: p.hash,
       text: p.text || "",
       author: {
         username: p.author?.username || "unknown",
