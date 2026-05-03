@@ -3,7 +3,7 @@ const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HUB = "https://hub.pinata.cloud";
+const HUB = "https://hoyt.farcaster.xyz:2281";
 
 app.use(cors());
 app.use(express.json());
