@@ -23,4 +23,4 @@ app.get('/feed', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`HypeSniper backend · port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`HypeSniper backend · port ${PORT}`));
